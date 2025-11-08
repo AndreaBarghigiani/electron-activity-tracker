@@ -49,7 +49,27 @@ const path = require('path');
 
   activities.forEach(activity => {
     const activeIcon = activity.is_user_active ? '✅' : '😴';
-    console.log(`[${activity.timestamp}] ${activeIcon} ${activity.process_name}`);
+    
+    // Calculate duration if updated_at differs from created_at
+    const createdAt = activity.created_at ? new Date(activity.created_at) : new Date(activity.timestamp);
+    const updatedAt = activity.updated_at ? new Date(activity.updated_at) : createdAt;
+    const durationMs = updatedAt - createdAt;
+    
+    // Display timestamp with duration if session lasted > 10 seconds
+    if (durationMs > 10000) {
+      const durationMin = Math.round(durationMs / 60000);
+      const durationHr = Math.floor(durationMin / 60);
+      const displayDuration = durationHr > 0 
+        ? `${durationHr}h ${durationMin % 60}m`
+        : `${durationMin}m`;
+      
+      const createdTime = activity.created_at ? activity.created_at.split(' ')[1] || activity.created_at : activity.timestamp;
+      const updatedTime = activity.updated_at ? activity.updated_at.split(' ')[1] || activity.updated_at : createdTime;
+      
+      console.log(`[${createdTime} → ${updatedTime}] ${activeIcon} ${activity.process_name} (${displayDuration})`);
+    } else {
+      console.log(`[${activity.timestamp}] ${activeIcon} ${activity.process_name}`);
+    }
     
     // Show URL if it's a browser
     if (activity.browser_url) {

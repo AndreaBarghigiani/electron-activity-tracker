@@ -56,7 +56,8 @@ class NetworkSync {
           mouse_movements: record.mouse_movements || 0,
           input_events: record.input_events || record.mouse_movements || 0,
           is_user_active: record.is_user_active === 1,
-          created_at: record.created_at
+          created_at: record.created_at,
+          updated_at: record.updated_at || record.created_at
         })),
         metadata: {
           total_records: unsyncedData.length,
