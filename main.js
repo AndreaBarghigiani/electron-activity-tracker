@@ -54,7 +54,7 @@ app.on('ready', async () => {
   setInterval(() => {
     const inputStats = inputTracker.getActivityStats();
     tracker.captureActivity(inputStats);
-  }, 10000); // Every 10 seconds
+  }, 5000); // Every 5 seconds
 
   // Initialize network sync (every 30 minutes)
   if (process.env.API_ENDPOINT) {
