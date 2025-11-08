@@ -8,28 +8,37 @@
     "view-data": "node view-data.js",
     "package:mac": "electron-builder --mac",
     "package:win": "electron-builder --win",
-    "package:linux": "electron-builder --linux"
+    "package:linux": "electron-builder --linux",
+    "postinstall": "electron-rebuild"
   },
-  "keywords": ["electron", "activity-tracker", "productivity"],
+  "keywords": [
+    "electron",
+    "activity-tracker",
+    "productivity"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "active-win": "^8.1.0",
-    "sql.js": "^1.10.3",
-    "dotenv": "^16.3.1",
     "axios": "^1.6.5",
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^16.3.1",
     "os-utils": "^0.0.14"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
     "electron": "^28.1.0",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "electron-rebuild": "^3.2.9"
   },
   "build": {
     "appId": "com.activitytracker.app",
     "productName": "Activity Tracker",
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dmg"]
+      "target": [
+        "dmg"
+      ]
     }
   }
 }

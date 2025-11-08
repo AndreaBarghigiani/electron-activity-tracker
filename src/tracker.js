@@ -1,5 +1,5 @@
 const activeWin = require('active-win');
-const initSqlJs = require('sql.js');
+const Database = require('better-sqlite3');
 const fs = require('fs');
 const os = require('os');
 const osUtils = require('os-utils');
@@ -15,21 +15,12 @@ class ActivityTracker {
     this.browserExtractor = new BrowserExtractor();
   }
 
-  async initialize() {
-    // Initialize SQLite database
-    const SQL = await initSqlJs();
-    
-    // Load existing database or create new one
-    let buffer;
-    if (fs.existsSync(this.dbPath)) {
-      buffer = fs.readFileSync(this.dbPath);
-      this.db = new SQL.Database(buffer);
-    } else {
-      this.db = new SQL.Database();
-    }
+  initialize() {
+    // Initialize SQLite database with better-sqlite3
+    this.db = new Database(this.dbPath);
     
     // Create table if not exists
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS activities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -50,16 +41,16 @@ class ActivityTracker {
     `);
 
     // Create index for faster queries on unsynced records
-    this.db.run(`
+    this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_synced ON activities(synced)
     `);
 
     // Migrations: add columns if missing
-    try { this.db.run('ALTER TABLE activities ADD COLUMN input_events INTEGER DEFAULT 0'); } catch (e) {}
-    try { this.db.run('ALTER TABLE activities ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP'); } catch (e) {}
+    try { this.db.exec('ALTER TABLE activities ADD COLUMN input_events INTEGER DEFAULT 0'); } catch (e) {}
+    try { this.db.exec('ALTER TABLE activities ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP'); } catch (e) {}
     
     // Backfill updated_at for existing records
-    this.db.run('UPDATE activities SET updated_at = created_at WHERE updated_at IS NULL');
+    this.db.exec('UPDATE activities SET updated_at = created_at WHERE updated_at IS NULL');
 
     console.log(`💾 Database initialized at: ${this.dbPath}`);
   }
@@ -75,17 +66,9 @@ class ActivityTracker {
       this.trackingInterval = null;
     }
     if (this.db) {
-      this.saveDatabase();
       this.db.close();
     }
     console.log('🛑 Activity tracking stopped');
-  }
-
-  saveDatabase() {
-    // Save database to disk
-    const data = this.db.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(this.dbPath, buffer);
   }
 
   async captureActivity(inputStats = null) {
@@ -126,7 +109,7 @@ class ActivityTracker {
             // UPDATE existing loginwindow record
             const duration = Math.round((Date.now() - new Date(previousRecord.created_at).getTime()) / 1000);
             
-            this.db.run(`
+            const stmt = this.db.prepare(`
               UPDATE activities 
               SET updated_at = CURRENT_TIMESTAMP,
                   cpu_usage = ?,
@@ -134,22 +117,22 @@ class ActivityTracker {
                   input_events = ?,
                   is_user_active = ?
               WHERE id = ?
-            `, [
+            `);
+            stmt.run(
               cpuUsage,
               memoryUsage,
               inputEvents,
               isUserActive,
               previousRecord.id
-            ]);
+            );
             
-            this.saveDatabase();
             console.log(`📌 Updated loginwindow session (ID: ${previousRecord.id}, duration: ${duration}s)`);
             return;
           }
         }
 
         // Normal INSERT for everything else (including first loginwindow)
-        this.db.run(`
+        const stmt = this.db.prepare(`
           INSERT INTO activities (
             window_title, 
             process_name, 
@@ -164,7 +147,8 @@ class ActivityTracker {
             input_events
           )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
+        `);
+        stmt.run(
           window.title || 'Unknown',
           currentProcess,
           window.owner.path || 'Unknown',
@@ -176,10 +160,7 @@ class ActivityTracker {
           mouseMovements,
           isUserActive,
           inputEvents
-        ]);
-        
-        // Save to disk after each insert
-        this.saveDatabase();
+        );
 
         const activeIndicator = isUserActive ? '✅' : '😴';
         if (browserUrl) {
@@ -209,27 +190,17 @@ class ActivityTracker {
   }
 
   getPreviousActivity() {
-    const results = this.db.exec('SELECT id, process_name, created_at FROM activities ORDER BY id DESC LIMIT 1');
-    if (!results || results.length === 0) return null;
-    
-    const columns = results[0].columns;
-    const values = results[0].values[0];
-    if (!values) return null;
-    
-    const record = {};
-    columns.forEach((col, i) => {
-      record[col] = values[i];
-    });
-    return record;
+    const stmt = this.db.prepare('SELECT id, process_name, created_at FROM activities ORDER BY id DESC LIMIT 1');
+    return stmt.get();
   }
 
   getStats() {
-    const total = this.db.exec('SELECT COUNT(*) as count FROM activities')[0];
-    const unsynced = this.db.exec('SELECT COUNT(*) as count FROM activities WHERE synced = 0')[0];
+    const total = this.db.prepare('SELECT COUNT(*) as count FROM activities').get();
+    const unsynced = this.db.prepare('SELECT COUNT(*) as count FROM activities WHERE synced = 0').get();
     
     return {
-      totalRecords: total ? total.values[0][0] : 0,
-      unsyncedRecords: unsynced ? unsynced.values[0][0] : 0,
+      totalRecords: total ? total.count : 0,
+      unsyncedRecords: unsynced ? unsynced.count : 0,
       dbPath: this.dbPath
     };
   }
@@ -239,27 +210,16 @@ class ActivityTracker {
     if (limit) {
       query += ` LIMIT ${limit}`;
     }
-    const results = this.db.exec(query);
-    if (!results || results.length === 0) return [];
-    
-    const columns = results[0].columns;
-    const values = results[0].values;
-    
-    return values.map(row => {
-      const obj = {};
-      columns.forEach((col, i) => {
-        obj[col] = row[i];
-      });
-      return obj;
-    });
+    const stmt = this.db.prepare(query);
+    return stmt.all();
   }
 
   markAsSynced(ids) {
     if (!ids || ids.length === 0) return;
     
     const placeholders = ids.map(() => '?').join(',');
-    this.db.run(`UPDATE activities SET synced = 1 WHERE id IN (${placeholders})`, ids);
-    this.saveDatabase();
+    const stmt = this.db.prepare(`UPDATE activities SET synced = 1 WHERE id IN (${placeholders})`);
+    stmt.run(...ids);
     
     console.log(`✅ Marked ${ids.length} records as synced`);
   }

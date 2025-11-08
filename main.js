@@ -45,7 +45,7 @@ app.on('ready', async () => {
 
   // Initialize tracker with SQLite
   tracker = new ActivityTracker();
-  await tracker.initialize();
+  tracker.initialize();
   
   // Start tracking with input stats
   tracker.start();
