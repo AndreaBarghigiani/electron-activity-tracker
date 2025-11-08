@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# SQLite database
+*.db
+*.db-journal
+
+# Build output
+dist/
+build/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+nohup.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -1,0 +1,35 @@
+{
+  "name": "electron-activity-tracker",
+  "version": "1.0.0",
+  "description": "Electron app to track user activity with local SQLite storage and periodic network sync",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "view-data": "node view-data.js",
+    "package:mac": "electron-builder --mac",
+    "package:win": "electron-builder --win",
+    "package:linux": "electron-builder --linux"
+  },
+  "keywords": ["electron", "activity-tracker", "productivity"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "active-win": "^8.1.0",
+    "sql.js": "^1.10.3",
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.5",
+    "os-utils": "^0.0.14"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.activitytracker.app",
+    "productName": "Activity Tracker",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg"]
+    }
+  }
+}
