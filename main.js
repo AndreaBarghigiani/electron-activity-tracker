@@ -1,4 +1,4 @@
-const { app, Tray, Menu, nativeImage } = require('electron');
+const { app, Tray, Menu, nativeImage, nativeTheme } = require('electron');
 const path = require('path');
 const ActivityTracker = require('./src/tracker');
 const NetworkSync = require('./src/networkSync');
@@ -10,9 +10,27 @@ let tracker = null;
 let networkSync = null;
 let inputTracker = null;
 
+const LIGHT_TRAY_ICON = path.join(__dirname, 'src', 'assets', 'light-tray-icon.png');
+const DARK_TRAY_ICON = path.join(__dirname, 'src', 'assets', 'dark-tray-icon.png');
+
 // Prevent app from showing in dock (macOS) - runs in background
 if (process.platform === 'darwin') {
   app.dock.hide();
+}
+
+function getTrayIcon() {
+  const useDarkColors = nativeTheme.shouldUseDarkColors;
+  const iconPath = useDarkColors ? LIGHT_TRAY_ICON : DARK_TRAY_ICON;
+  let icon = nativeImage.createFromPath(iconPath);
+
+  if (!icon.isEmpty()) {
+    icon = icon.resize({ width: 16, height: 16 });
+    if (process.platform === 'darwin') {
+      icon.setTemplateImage(true);
+    }
+  }
+
+  return icon;
 }
 
 app.on('ready', async () => {
@@ -51,13 +69,18 @@ app.on('ready', async () => {
 });
 
 function createTray() {
-  // Create a simple tray icon
-  const iconData = nativeImage.createEmpty();
+  // Create tray icon that adapts to system theme
+  const iconData = getTrayIcon();
   tray = new Tray(iconData);
 
   updateTrayMenu();
 
   tray.setToolTip('Activity Tracker - Running');
+
+  // Update tray icon if the OS theme changes
+  nativeTheme.on('updated', () => {
+    tray.setImage(getTrayIcon());
+  });
 }
 
 function updateTrayMenu() {

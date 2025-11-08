@@ -1,3 +1,10 @@
+> [!TIP]
+> This entire application is actively developed with [Spec Kit](https://github.com/github/spec-kit) to help me define the application's behavior and structure since I am not a master of Electron 😅
+> It is configured to work with [Windsurf](https://windsurf.com/) out of the box. This will not stop you from using Spec Kit via CLI and you're free to add config for other editors (dunno if it is possible, read the [docs](https://github.com/github/spec-kit?tab=readme-ov-file#-get-started) ).
+
+> [!CAUTION]
+> This project is a work in progress and is not yet ready for production use.
+
 # 🧠 Electron Activity Tracker
 
 An Electron-based background application that tracks your computer activity and syncs data to a remote server every 30 minutes.
@@ -19,24 +26,31 @@ An Electron-based background application that tracks your computer activity and 
 - macOS (primary), Linux or Windows
 - An API endpoint to receive the activity data
 
+> [!IMPORTANT]
+> On macOS you must grant both **Automation** and **Accessibility** permissions the first time you run the tracker, otherwise URL capture and idle detection will be disabled.
+
 ## ⚙️ Installation
 
 1. **Clone or download this project**:
+
    ```bash
    cd /path/to/ai-tracker
    ```
 
 2. **Install dependencies**:
+
    ```bash
    npm install
    ```
 
 3. **Configure environment variables**:
+
    ```bash
    cp .env.example .env
    ```
-   
+
    Edit `.env` and set your API endpoint:
+
    ```
    API_ENDPOINT=https://your-api.com/api/activities
    API_KEY=your-api-key-here  # Optional
@@ -47,11 +61,13 @@ An Electron-based background application that tracks your computer activity and 
 ### Development Mode
 
 Run the app in development mode:
+
 ```bash
 npm start
 ```
 
 The app will:
+
 - Start tracking activity every 10 seconds
 - Store data in `~/activity.db`
 - Sync data to your API every 30 minutes
@@ -76,6 +92,7 @@ npm run view-data
 ```
 
 This will show:
+
 - Total and unsynced records
 - Last 10 activities (including URLs for browsers)
 - Top 5 most used applications
@@ -104,6 +121,7 @@ The executable will be in the `dist/` directory.
 Location: `~/activity.db`
 
 Schema:
+
 ```sql
 CREATE TABLE activities (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,12 +175,14 @@ Every 30 minutes, the app sends a POST request to your API endpoint with this st
 ## 🔐 API Endpoint Requirements
 
 Your API endpoint should:
+
 - Accept POST requests
 - Accept `application/json` content type
 - Return 2xx status code on success
 - Optionally support Bearer token authentication via `Authorization` header
 
 Example response:
+
 ```json
 {
   "success": true,
@@ -175,8 +195,9 @@ Example response:
 On **macOS**, the app can extract actual URLs from browsers using AppleScript:
 
 **Supported Browsers:**
+
 - Google Chrome
-- Safari  
+- Safari
 - Brave Browser
 - Microsoft Edge
 - Arc
@@ -186,6 +207,7 @@ On **macOS**, the app can extract actual URLs from browsers using AppleScript:
 When you first run the app, macOS will ask for permission to control your browser. You must **Allow** this for URL tracking to work.
 
 If you denied permission, you can fix it:
+
 1. Open **System Settings** > **Privacy & Security** > **Automation**
 2. Find your terminal app (e.g., Terminal, Warp, iTerm)
 3. Enable control for your browsers
@@ -197,6 +219,7 @@ If you denied permission, you can fix it:
 On **macOS**, the app tracks mouse movements to determine if you're actively using the computer:
 
 **What's Tracked:**
+
 - Mouse movements (checked every 2 seconds)
 - User activity status (Active vs Idle)
 
