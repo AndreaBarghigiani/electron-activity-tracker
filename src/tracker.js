@@ -44,7 +44,8 @@ class ActivityTracker {
         mouse_movements INTEGER DEFAULT 0,
         is_user_active INTEGER DEFAULT 1,
         synced INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -55,6 +56,10 @@ class ActivityTracker {
 
     // Migrations: add columns if missing
     try { this.db.run('ALTER TABLE activities ADD COLUMN input_events INTEGER DEFAULT 0'); } catch (e) {}
+    try { this.db.run('ALTER TABLE activities ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP'); } catch (e) {}
+    
+    // Backfill updated_at for existing records
+    this.db.run('UPDATE activities SET updated_at = created_at WHERE updated_at IS NULL');
 
     console.log(`💾 Database initialized at: ${this.dbPath}`);
   }
@@ -95,12 +100,13 @@ class ActivityTracker {
       const memoryUsage = this.getMemoryUsage();
 
       if (window) {
+        const currentProcess = window.owner.name || 'Unknown';
         let browserUrl = null;
         let browserTabTitle = null;
 
         // If it's a browser, try to extract URL
-        if (this.browserExtractor.isBrowser(window.owner.name)) {
-          const browserInfo = await this.browserExtractor.extractBrowserInfo(window.owner.name);
+        if (this.browserExtractor.isBrowser(currentProcess)) {
+          const browserInfo = await this.browserExtractor.extractBrowserInfo(currentProcess);
           if (browserInfo) {
             browserUrl = browserInfo.url;
             browserTabTitle = browserInfo.title;
@@ -110,8 +116,39 @@ class ActivityTracker {
         // Get input activity data
         const mouseMovements = inputStats ? inputStats.mouseMovements : 0;
         const isUserActive = inputStats ? (inputStats.isActive ? 1 : 0) : 1;
+        const inputEvents = inputStats && typeof inputStats.inputEvents === 'number' ? inputStats.inputEvents : mouseMovements;
 
-        // Insert into database
+        // Check for loginwindow deduplication
+        if (currentProcess === 'loginwindow') {
+          const previousRecord = this.getPreviousActivity();
+          
+          if (previousRecord && previousRecord.process_name === 'loginwindow') {
+            // UPDATE existing loginwindow record
+            const duration = Math.round((Date.now() - new Date(previousRecord.created_at).getTime()) / 1000);
+            
+            this.db.run(`
+              UPDATE activities 
+              SET updated_at = CURRENT_TIMESTAMP,
+                  cpu_usage = ?,
+                  memory_usage = ?,
+                  input_events = ?,
+                  is_user_active = ?
+              WHERE id = ?
+            `, [
+              cpuUsage,
+              memoryUsage,
+              inputEvents,
+              isUserActive,
+              previousRecord.id
+            ]);
+            
+            this.saveDatabase();
+            console.log(`📌 Updated loginwindow session (ID: ${previousRecord.id}, duration: ${duration}s)`);
+            return;
+          }
+        }
+
+        // Normal INSERT for everything else (including first loginwindow)
         this.db.run(`
           INSERT INTO activities (
             window_title, 
@@ -129,7 +166,7 @@ class ActivityTracker {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           window.title || 'Unknown',
-          window.owner.name || 'Unknown',
+          currentProcess,
           window.owner.path || 'Unknown',
           cpuUsage,
           memoryUsage,
@@ -138,7 +175,7 @@ class ActivityTracker {
           browserTabTitle,
           mouseMovements,
           isUserActive,
-          inputStats && typeof inputStats.inputEvents === 'number' ? inputStats.inputEvents : mouseMovements
+          inputEvents
         ]);
         
         // Save to disk after each insert
@@ -146,9 +183,9 @@ class ActivityTracker {
 
         const activeIndicator = isUserActive ? '✅' : '😴';
         if (browserUrl) {
-          console.log(`${activeIndicator} Tracked: ${window.owner.name} - ${browserUrl}`);
+          console.log(`${activeIndicator} Tracked: ${currentProcess} - ${browserUrl}`);
         } else {
-          console.log(`${activeIndicator} Tracked: ${window.owner.name} - ${window.title}`);
+          console.log(`${activeIndicator} Tracked: ${currentProcess} - ${window.title}`);
         }
       }
     } catch (error) {
@@ -169,6 +206,21 @@ class ActivityTracker {
     const freeMem = os.freemem();
     const usedMem = totalMem - freeMem;
     return ((usedMem / totalMem) * 100).toFixed(2);
+  }
+
+  getPreviousActivity() {
+    const results = this.db.exec('SELECT id, process_name, created_at FROM activities ORDER BY id DESC LIMIT 1');
+    if (!results || results.length === 0) return null;
+    
+    const columns = results[0].columns;
+    const values = results[0].values[0];
+    if (!values) return null;
+    
+    const record = {};
+    columns.forEach((col, i) => {
+      record[col] = values[i];
+    });
+    return record;
   }
 
   getStats() {
