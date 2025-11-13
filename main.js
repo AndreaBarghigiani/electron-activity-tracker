@@ -1,14 +1,17 @@
-const { app, Tray, Menu, nativeImage, nativeTheme } = require('electron');
+const { app, Tray, Menu, nativeImage, nativeTheme, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const ActivityTracker = require('./src/tracker');
 const NetworkSync = require('./src/networkSync');
 const InputTracker = require('./src/inputTracker');
+const AuthManager = require('./src/auth/authManager');
 require('dotenv').config();
 
 let tray = null;
 let tracker = null;
 let networkSync = null;
 let inputTracker = null;
+let authManager = null;
+let loginWindow = null;
 
 const LIGHT_TRAY_ICON = path.join(__dirname, 'src', 'assets', 'light-tray-icon.png');
 const DARK_TRAY_ICON = path.join(__dirname, 'src', 'assets', 'dark-tray-icon.png');
@@ -36,6 +39,80 @@ function getTrayIcon() {
 app.on('ready', async () => {
   console.log('🚀 Activity Tracker starting...');
   
+  // Initialize auth manager
+  authManager = await AuthManager.build();
+  
+  // Check if user is authenticated
+  if (authManager.isAuthenticated()) {
+    console.log('✅ User already authenticated');
+    
+    // Validate session
+    const isValid = await authManager.validateSession();
+    
+    if (isValid) {
+      const user = authManager.getUser();
+      console.log(`👤 Logged in as: ${user.email}`);
+      startTracking();
+    } else {
+      console.log('⚠️  Session expired, showing login');
+      showLoginWindow();
+    }
+  } else {
+    console.log('🔐 No authentication found, showing login');
+    showLoginWindow();
+  }
+});
+
+function showLoginWindow() {
+  loginWindow = new BrowserWindow({
+    width: 480,
+    height: 640,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    show: false
+  });
+
+  loginWindow.loadFile(path.join(__dirname, 'src', 'auth', 'login.html'));
+  
+  loginWindow.once('ready-to-show', () => {
+    loginWindow.show();
+  });
+
+  loginWindow.on('closed', () => {
+    loginWindow = null;
+    
+    // If user closed login without authenticating, quit app
+    if (!authManager.isAuthenticated()) {
+      console.log('❌ Login cancelled, quitting app');
+      app.quit();
+    }
+  });
+}
+
+ipcMain.handle('auth:login', async (_event, { email, password }) => {
+  try {
+    const result = await authManager.login(email, password);
+    
+    if (result.success) {
+      if (loginWindow) {
+        loginWindow.close();
+      }
+      await startTracking();
+    }
+
+    return result;
+  } catch (err) {
+    return { success: false, error: 'Unexpected error during login' };
+  }
+});
+
+async function startTracking() {
   // Create system tray icon
   createTray();
 
@@ -66,7 +143,7 @@ app.on('ready', async () => {
   }
 
   console.log('✅ Activity Tracker is running in background');
-});
+}
 
 function createTray() {
   // Create tray icon that adapts to system theme
@@ -85,10 +162,15 @@ function createTray() {
 
 function updateTrayMenu() {
   const stats = tracker ? tracker.getStats() : null;
+  const user = authManager ? authManager.getUser() : null;
   
   const contextMenu = Menu.buildFromTemplate([
     {
       label: '🧠 Activity Tracker',
+      enabled: false
+    },
+    {
+      label: user ? `👤 ${user.email}` : '👤 Not logged in',
       enabled: false
     },
     { type: 'separator' },
@@ -116,6 +198,17 @@ function updateTrayMenu() {
       enabled: !!networkSync
     },
     { type: 'separator' },
+    {
+      label: 'Logout',
+      click: () => {
+        if (authManager) {
+          authManager.logout();
+          console.log('Logging out and restarting...');
+          app.relaunch();
+          app.quit();
+        }
+      }
+    },
     {
       label: 'Quit',
       click: () => {
