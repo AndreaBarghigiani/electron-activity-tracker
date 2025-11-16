@@ -8,7 +8,7 @@ class AuthManager {
   constructor(StoreClass) {
     this.store = new StoreClass({
       encryptionKey: 'activity-tracker-secure-key', // In production, use a better key
-      name: 'auth-data'
+      name: 'auth-data',
     });
     this.apiUrl = process.env.AUTH_API_URL || 'http://localhost:3000';
   }
@@ -25,43 +25,67 @@ class AuthManager {
 
   /**
    * Login with email and password
-   * @param {string} email 
-   * @param {string} password 
+   * @param {string} email
+   * @param {string} password
    * @returns {Promise<{success: boolean, user?: object, error?: string}>}
    */
   async login(email, password) {
     try {
-      console.log(`🔐 Attempting login to ${this.apiUrl}/api/auth/sign-in/email`);
-      
-      const response = await axios.post(`${this.apiUrl}/api/auth/sign-in/email`, {
-        email,
-        password
-      });
+      console.log(
+        `🔐 Attempting login to ${this.apiUrl}/api/auth/sign-in/email`
+      );
+
+      const response = await axios.post(
+        `${this.apiUrl}/api/auth/sign-in/email`,
+        {
+          email,
+          password,
+        }
+      );
 
       if (response.data && response.data.user) {
-        // Extract session token from cookies
+        // Extract session tokens from cookies
         const cookies = response.headers['set-cookie'];
         let sessionToken = null;
+        let sessionTokenSignature = null;
+        let sessionCookieHeader = null;
 
-        if (cookies) {
-          // Better Auth typically uses 'better-auth.session_token' cookie
-          const sessionCookie = cookies.find(cookie => 
-            cookie.includes('better-auth.session_token')
-          );
-          
-          if (sessionCookie) {
-            const match = sessionCookie.match(/better-auth\.session_token=([^;]+)/);
-            if (match) {
-              sessionToken = match[1];
+        if (cookies && Array.isArray(cookies) && cookies.length > 0) {
+          // Build a generic Cookie header from all Set-Cookie values (name=value only)
+          const cookiePairs = cookies.map((cookie) => cookie.split(';')[0]);
+          sessionCookieHeader = cookiePairs.join('; ');
+
+          // Best-effort extraction of Better Auth cookies for potential future use
+          cookies.forEach((cookie) => {
+            if (cookie.includes('better-auth.session_token')) {
+              const match = cookie.match(/better-auth\.session_token=([^;]+)/);
+              if (match) {
+                sessionToken = match[1];
+              }
             }
-          }
+            if (cookie.includes('better-auth.session_token_signature')) {
+              const match = cookie.match(
+                /better-auth\.session_token_signature=([^;]+)/
+              );
+              if (match) {
+                sessionTokenSignature = match[1];
+              }
+            }
+          });
         }
 
-        // Store user data and session token
+        // Fallback: some Better Auth setups may return a session object with a token
+        if (!sessionToken && response.data.session?.token) {
+          sessionToken = response.data.session.token;
+        }
+
+        // Store user data and session tokens
         const authData = {
           user: response.data.user,
           sessionToken: sessionToken,
-          timestamp: Date.now()
+          sessionTokenSignature: sessionTokenSignature,
+          sessionCookie: sessionCookieHeader,
+          timestamp: Date.now(),
         };
 
         this.store.set('auth', authData);
@@ -69,27 +93,28 @@ class AuthManager {
 
         return {
           success: true,
-          user: response.data.user
+          user: response.data.user,
         };
       }
 
       return {
         success: false,
-        error: 'Invalid response from server'
+        error: 'Invalid response from server',
       };
     } catch (error) {
       console.error('❌ Login failed:', error.message);
-      
+
       if (error.response) {
         return {
           success: false,
-          error: error.response.data?.message || 'Invalid email or password'
+          error: error.response.data?.message || 'Invalid email or password',
         };
       }
 
       return {
         success: false,
-        error: 'Could not connect to server. Please check your internet connection.'
+        error:
+          'Could not connect to server. Please check your internet connection.',
       };
     }
   }
@@ -122,22 +147,39 @@ class AuthManager {
   }
 
   /**
+   * Get raw session cookie header for API requests
+   * @returns {string|null}
+   */
+  getSessionCookie() {
+    const auth = this.store.get('auth');
+    return auth?.sessionCookie || null;
+  }
+
+  /**
+   * Get session token signature for API requests
+   * @returns {string|null}
+   */
+  getSessionTokenSignature() {
+    const auth = this.store.get('auth');
+    return auth?.sessionTokenSignature || null;
+  }
+
+  /**
    * Validate session with server
    * @returns {Promise<boolean>}
    */
   async validateSession() {
     try {
-      const sessionToken = this.getSessionToken();
-      
-      if (!sessionToken) {
+      const authHeadersConfig = this.getAuthHeaders();
+      const headers = authHeadersConfig.headers || {};
+
+      if (!Object.keys(headers).length) {
         return false;
       }
 
-      // Call Better Auth session endpoint
+      // Call Better Auth session endpoint using the same auth headers we use elsewhere
       const response = await axios.get(`${this.apiUrl}/api/auth/get-session`, {
-        headers: {
-          'Cookie': `better-auth.session_token=${sessionToken}`
-        }
+        headers,
       });
 
       if (response.data && response.data.user) {
@@ -169,16 +211,27 @@ class AuthManager {
    */
   getAuthHeaders() {
     const sessionToken = this.getSessionToken();
-    
-    if (sessionToken) {
-      return {
-        headers: {
-          'Cookie': `better-auth.session_token=${sessionToken}`
-        }
-      };
+    const sessionTokenSignature = this.getSessionTokenSignature();
+    const sessionCookie = this.getSessionCookie();
+
+    const headers = {};
+
+    if (sessionCookie) {
+      // Prefer sending the exact cookies the server set on login
+      headers["Cookie"] = sessionCookie;
+    } else if (sessionToken && sessionTokenSignature) {
+      // Fallback: construct Better Auth cookie header from stored pieces
+      headers["Cookie"] = `better-auth.session_token=${sessionToken}; better-auth.session_token_signature=${sessionTokenSignature}`;
+    } else if (sessionToken) {
+      // Last resort: use bearer token when we only have a single token
+      headers["Authorization"] = `Bearer ${sessionToken}`;
     }
 
-    return {};
+    if (Object.keys(headers).length === 0) {
+      return {};
+    }
+
+    return { headers };
   }
 }
 
